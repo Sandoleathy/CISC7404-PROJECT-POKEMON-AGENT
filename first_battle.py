@@ -1,9 +1,9 @@
 import asyncio
-from poke_env.player import RandomPlayer, MaxBasePowerPlayer
+from poke_env.player import RandomPlayer, MaxBasePowerPlayer, SimpleHeuristicsPlayer
 
 async def main():
     player_1 = MaxBasePowerPlayer(max_concurrent_battles=1)
-    player_2 = RandomPlayer(max_concurrent_battles=1)
+    player_2 = SimpleHeuristicsPlayer(max_concurrent_battles=1)
 
     await player_1.battle_against(player_2, n_battles=100)
 
