@@ -2,6 +2,75 @@ import os, json
 from openai import OpenAI
 from poke_env.player import Player
 from dotenv import load_dotenv
+from poke_env import ServerConfiguration, AccountConfiguration
+from pathlib import Path
+
+PokeAgentServerConfiguration = ServerConfiguration(
+    "wss://battling.pokeagentchallenge.com/showdown/websocket",
+    "https://battling.pokeagentchallenge.com/action.php?",
+)
+
+#TEAM = Path("team.txt").read_text()
+
+
+_TEAM_BLOCKS = [
+    """Great Tusk @ Heavy-Duty Boots
+Ability: Protosynthesis
+Tera Type: Ground
+EVs: 252 Atk / 4 Def / 252 Spe
+Jolly Nature
+- Headlong Rush
+- Close Combat
+- Rapid Spin
+- Knock Off""",
+    """Kingambit @ Black Glasses
+Ability: Supreme Overlord
+Tera Type: Dark
+EVs: 252 HP / 252 Atk / 4 SpD
+Adamant Nature
+- Kowtow Cleave
+- Sucker Punch
+- Swords Dance
+- Iron Head""",
+    """Gholdengo @ Air Balloon
+Ability: Good as Gold
+Tera Type: Steel
+EVs: 252 SpA / 4 SpD / 252 Spe
+Timid Nature
+- Make It Rain
+- Shadow Ball
+- Nasty Plot
+- Recover""",
+    """Dragapult @ Choice Specs
+Ability: Infiltrator
+Tera Type: Ghost
+EVs: 252 SpA / 4 SpD / 252 Spe
+Timid Nature
+- Shadow Ball
+- Draco Meteor
+- U-turn
+- Fire Blast""",
+    """Rotom-Wash @ Leftovers
+Ability: Levitate
+Tera Type: Water
+EVs: 252 HP / 4 SpA / 252 SpD
+Calm Nature
+- Volt Switch
+- Hydro Pump
+- Will-O-Wisp
+- Thunder Wave""",
+    """Garchomp @ Rocky Helmet
+Ability: Rough Skin
+Tera Type: Steel
+EVs: 252 Atk / 4 Def / 252 Spe
+Jolly Nature
+- Earthquake
+- Stealth Rock
+- Dragon Claw
+- Stone Edge""",
+]
+TEAM = "\n\n".join(_TEAM_BLOCKS)
+
 
 load_dotenv()
 
@@ -89,13 +158,18 @@ class DeepSeekPlayer(Player):
             ],
             response_format={"type": "json_object"},
             temperature=0,
-            extra_body = { "thinking" : {"type": "disabled"} },       # 关闭思考
+            reasoning_effort = 'high',     # 启用思考
+            extra_body={"thinking": {"type": "enabled"}},
         )
         raw = resp.choices[0].message.content
+        reason_raw = resp.choices[0].message.reasoning_content
+        
         try:
             idx = int(json.loads(raw)["action"])
+            
             assert 0 <= idx < n_moves + n_switches
             self._log(f"OK  turn-battle pick={idx}")
+            self._log(f"Reaoning: {reason_raw}")
             return idx
         except Exception as e:
             self._log(f"FAIL parse_error={e} raw={raw!r} n_moves={n_moves} n_sw={n_switches}")
@@ -107,16 +181,19 @@ class DeepSeekPlayer(Player):
             f.write(msg + "\n")
 
 import asyncio
-from poke_env.player import SimpleHeuristicsPlayer, MaxBasePowerPlayer
 
 async def main():
-    player_1 = DeepSeekPlayer(max_concurrent_battles=1)
-    player_2 = SimpleHeuristicsPlayer(max_concurrent_battles=1)
+    agent = DeepSeekPlayer(
+        account_configuration=AccountConfiguration("DeepSeekFlash", "CISC7404"),
+        server_configuration=PokeAgentServerConfiguration,
+        battle_format="gen9oulongtimer",
+        max_concurrent_battles=1,
+        team = TEAM,
+    )
 
-    await player_1.battle_against(player_2, n_battles=10)
-
-    print(f"Finished battles: {player_1.n_finished_battles}")
-    print(f"Player 1 wins: {player_1.n_won_battles}")
+    await agent.ladder(1)
+    print(f"完成 {agent.n_finished_battles} 场，胜 {agent.n_won_battles}")
+    
 
 if __name__ == "__main__":
     asyncio.run(main())
