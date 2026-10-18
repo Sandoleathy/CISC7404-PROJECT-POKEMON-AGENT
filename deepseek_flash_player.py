@@ -5,6 +5,7 @@ from dotenv import load_dotenv
 from poke_env import ServerConfiguration, AccountConfiguration
 from pathlib import Path
 
+# to connect to the PokeAgentChallenge server, use the following configuration
 PokeAgentServerConfiguration = ServerConfiguration(
     "wss://battling.pokeagentchallenge.com/showdown/websocket",
     "https://battling.pokeagentchallenge.com/action.php?",
@@ -193,6 +194,10 @@ async def main():
 
     await agent.ladder(1)
     print(f"完成 {agent.n_finished_battles} 场，胜 {agent.n_won_battles}")
+
+    for tag, battle in agent.battles.items():
+        print(f"{tag}  {'胜' if battle.won else '负'}  "
+              f"我方 {battle.rating} vs 对手 {battle.opponent_rating}")
     
 
 if __name__ == "__main__":

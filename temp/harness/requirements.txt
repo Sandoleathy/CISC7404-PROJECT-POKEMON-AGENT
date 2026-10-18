@@ -1,0 +1,15 @@
+# Runtime dependencies of the DeepSeek-only pokechamp harness.
+# Versions are not pinned here; the repository venv already provides them.
+numpy
+orjson
+openai
+websockets
+requests
+python-dotenv
+
+# Optional: only needed for the terminal banners in pokechamp/visual_effects.py.
+# Without them the harness prints plain text instead.
+# pyfiglet
+# rich
+# fade
+# termcolor

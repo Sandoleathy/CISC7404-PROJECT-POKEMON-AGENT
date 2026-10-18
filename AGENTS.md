@@ -1,107 +1,261 @@
 # AGENTS.md
 
-给在本仓库工作的 AI 编码 Agent 的说明。人类开发者请看 [README.md](README.md)。
+Instructions for AI coding agents working in this repository. Human contributors: see
+[README.md](README.md).
 
-## 项目是什么
+## What this project is
 
-- CISC7404（AI-Trustworthy）课程项目：宝可梦 PvP Demo，仓库名 `CISC7404-PROJECT-POKEMON-AGENT`。
-- 做法：用 `poke_env` 连本地 Pokémon Showdown 服务器，写一个由大模型（DeepSeek）决策的对战 Agent，让它和 poke-env 自带的启发式玩家对战，用胜负场次衡量表现。
-- 现状：demo 阶段。脚本直连、没有配置层、没有测试。一次"实验"= 起服务器 → 跑若干场对战 → 看胜负统计和 `llm_trace.log`。
-- 这是课程作业，代码会被队友和助教阅读：优先可读性，改动尽量小，不要做与任务无关的重构/重排。
+- CISC7404 (AI-Trustworthy) course project: a Pokemon PvP demo, repository
+  `CISC7404-PROJECT-POKEMON-AGENT`.
+- Approach: drive a Pokemon Showdown battle through `poke_env` with a large language
+  model (DeepSeek) and measure it by wins/losses against poke-env's built-in heuristic
+  players.
+- Two generations of code live here:
+  1. the original demo scripts in the repository root (direct connection, no config
+     layer, minimal prompt);
+  2. `temp/harness/`, a trimmed DeepSeek-only copy of the PokéChamp harness (ICML'25
+     paper code, https://github.com/sethkarten/pokechamp) with its own vendored
+     `poke_env` engine.
+- Status: demo/experiment stage, no test suite, no linter, no configuration layer.
+  One "experiment" = start a server (or use the online ladder) -> run N battles -> read
+  the win/loss summary and the logs.
+- This is coursework that teammates and the TA read: prefer readability, keep diffs
+  small, and do not refactor or reformat files unrelated to your task.
 
-## 常用命令（Windows / PowerShell）
+## Repository layout
+
+| Path | Role |
+| --- | --- |
+| `deepseek_flash_player.py` | Original LLM agent: `DeepSeekPlayer`, prompt building, one API call per turn, writes `llm_trace.log` |
+| `first_battle.py` | Non-AI baseline: `MaxBasePowerPlayer` vs `SimpleHeuristicsPlayer`, 100 battles |
+| `inspect_battle.py` | Debug helper: prints the attribute names of `battle`/Pokemon/Move objects once |
+| `team.txt` | Team export for the root agent, but it is missing the blank lines between Pokemon, so it parses as a single Pokemon. The root agent hardcodes its team instead; the harness ships a corrected copy as `team_gen9ou.txt` |
+| `llm_trace.log` | Decision log appended by the root agent (**tracked by git**, see "Known pitfalls") |
+| `requirements.txt` | Full `pip freeze` of the root scripts (exact versions) |
+| `temp/harness/` | DeepSeek-only PokéChamp harness: own README, `pokechamp/` (LLM player, prompts, minimax, DeepSeek backend), vendored `poke_env/` + static data, `local_1v1.py`, `ladder_deepseek.py`, `team_gen9ou.txt`, `llm_trace.log` |
+
+`temp/harness/` is meant to be committed (about 20 MB, mostly `poke_env/data/static`).
+`temp/harness/README.md` documents the harness in detail; this file only lists what an
+agent must know before touching it.
+
+## Setup and commands (Windows / PowerShell)
 
 ```powershell
-# 首次准备（虚拟环境必须叫 venv，且不要上传，见 README）
+# First-time setup: the virtual environment must be named venv and must not be uploaded
 python -m venv venv
-venv\Scripts\Activate.ps1          # 注意是 Scripts，不是 Script（README 里写错了）
+venv\Scripts\Activate.ps1          # PowerShell; in cmd it is venv\Scripts\activate
 pip install -r requirements.txt
 
-# 跑对战（也可以不激活，直接用 venv 的解释器）
-venv\Scripts\python.exe first_battle.py            # 非 AI 基线：MaxBasePowerPlayer vs SimpleHeuristicsPlayer，100 场
-venv\Scripts\python.exe deepseek_flash_player.py   # LLM Agent：DeepSeekPlayer vs SimpleHeuristicsPlayer，10 场
-venv\Scripts\python.exe inspect_battle.py          # 调试：打印 battle/宝可梦/招式对象的字段名，只打印一次
+# Root demo scripts (the venv interpreter can be used without activating)
+venv\Scripts\python.exe first_battle.py            # non-AI baseline, 100 battles
+venv\Scripts\python.exe deepseek_flash_player.py   # LLM agent, one ladder game
+venv\Scripts\python.exe inspect_battle.py          # poke-env field names, prints once
+
+# Harness: always run it from temp\harness, its data paths are relative
+cd temp\harness
+..\..\venv\Scripts\python.exe ladder_deepseek.py --username <name> --N 1
+..\..\venv\Scripts\python.exe local_1v1.py --player_prompt_algo io --opponent_name one_step --N 5
 ```
 
-环境要求：Node ≥ v22.18.0（跑 Showdown 服务器）、Python ≥ 3.10。
+- Python >= 3.10 (the checked-in `venv` currently runs 3.14.5 and is isolated, so install
+  packages into it explicitly).
+- The harness needs `numpy`, `orjson`, `openai`, `websockets`, `requests` and
+  `python-dotenv`, all already present. `rich`/`pyfiglet`/`fade`/`termcolor` are **not**
+  installed and are not required: `pokechamp/visual_effects.py` degrades to plain text.
+- `local_1v1.py` needs a local Showdown server on port 8000; the ladder script talks to
+  the public PokeAgent Challenge server.
+- Team selection: `--team_file <path>` (default `temp/harness/team_gen9ou.txt`) or
+  `--random_team` for a bundled export; both are parsed and must yield six Pokemon.
 
-## 运行前提：本地 Pokémon Showdown 服务器
+## Environment variables and secrets
 
-- `poke_env` 默认用 `LocalhostServerConfiguration`，即 `ws://localhost:8000/showdown/websocket`；默认对战格式 `gen9randombattle`。仓库代码没有显式传 `battle_format` / `server_configuration`，所以队伍是由 poke-env 自动生成的随机队。
-- 要换格式必须显式传参（例如 `Player(battle_format="gen9ou", team=...)`），非 random 格式需要自己提供队伍。
-- 起服务器：
+- The repository root `.env` holds `DEEPSEEK_API_KEY=...`; `python-dotenv`'s
+  `load_dotenv()` reads it into `os.environ`.
+- `.env` is git-ignored: never `git add` it, never print the key in output, logs, prompts
+  or commits, and never hardcode it in a script. Use
+  `os.environ.get("DEEPSEEK_API_KEY")`.
+- Additional variables read by `temp/harness/ladder_deepseek.py` and the DeepSeek backend:
+  `DEEPSEEK_MODEL` (default `deepseek-flash`), `DEEPSEEK_BASE_URL`,
+  `DEEPSEEK_THINKING` (`0` disables thinking), `DEEPSEEK_REASONING_EFFORT`
+  (`low`/`medium`/`high`, default `high`), `POKEAGENT_USERNAME`,
+  `POKEAGENT_PASSWORD`, `POKEAGENT_SERVER_URL`, `POKEAGENT_AUTH_URL`, and
+  `HARNESS_TRACE_LOG` (trace-log path, `0` disables the trace log).
+- Ladder credentials must come from the environment; `passwords.json` is git-ignored.
+- With a missing or invalid key, `OpenAI(...)` still constructs fine and the first API
+  call raises. Check this first when a run dies unexpectedly.
+
+## Logs: where to look
+
+### Root agent (`deepseek_flash_player.py`)
+
+- Appends to `llm_trace.log` in the repository root.
+- `OK  turn-battle pick=N` means a decision was parsed; the next line is the model's
+  reasoning (`Reaoning: ...`).
+- `FAIL parse_error=... raw=... n_moves=... n_sw=...` means the model returned invalid
+  JSON or an out-of-range index; the raw output is included, use it to fix the prompt.
+- The file is tracked by git and grows on every run, so it turns dirty after each battle.
+
+### Harness (`temp/harness/`)
+
+- Appends a per-call trace to `temp/harness/llm_trace.log` from
+  `pokechamp/deepseek_player.py`, the same mechanism as the root agent's `_log()`: a
+  `--- call #N ...` header (agent, battle tag, turn, model, thinking effort, prompt size) followed by
+  `ANSWER:` (what the prompt algorithms parse), `THINKING:` (the reasoning), `USAGE:`
+  (tokens and latency) or `ERROR:` when the API call raised. Each field is capped at
+  8000 characters.
+  - `HARNESS_TRACE_LOG=<path>` moves the file, `HARNESS_TRACE_LOG=0` disables tracing.
+  - It is tracked by git like the root log, so it too turns dirty after every run.
+- Everything else goes to stdout/stderr of the process: poke_env's logger prints every
+  websocket frame, the LLM player prints its reasoning as `LLM [<username>]: ...`, and the
+  script prints the final `Finished battles: ..., won: ...` summary. The agent also posts
+  its reasoning into the battle chat (~950-character chunks).
+- `--log_dir` (default `./battle_log/ladder` for the ladder, `./battle_log/one_vs_one`
+  for local battles) is only passed to poke_env as `save_replays`.
+
+To keep the console output as well, redirect it while running from `temp\harness`:
 
 ```powershell
-git clone https://github.com/smogon/pokemon-showdown.git
-cd pokemon-showdown
-npm install
-copy config\config-example.js config\config.js
-node pokemon-showdown start --no-security
+cd temp\harness
+..\..\venv\Scripts\python.exe -u ladder_deepseek.py --N 1 *> ladder.log
 ```
 
-浏览器打开 `http://localhost:8000` 可看到对战界面。
+`-u` flushes Python output continuously; without it the file stays empty until the process
+exits, which looks like a hang but is not one.
 
-- **服务器没启动或不在 8000 端口时，脚本会卡在连接/超时**。这不是 Agent 代码的 bug：先确认服务器在跑，再排查代码。改代码前先确认这一点，能省掉很多误判。
+Agents: verification logs (`ladder.log`, `smoke_battle.log`, ...) and `battle_log/` are
+runtime artifacts. Delete them before you finish, so the working tree stays clean.
 
-## 环境变量与密钥
+## How the agents are built
 
-- 根目录 `.env` 里是 `DEEPSEEK_API_KEY=...`，由 `python-dotenv` 的 `load_dotenv()` 读进 `os.environ`。
-- `.env` 已被 git 忽略：**不要 `git add` 它，不要在输出/日志/提示词里回显 key，也不要把 key 硬编码进任何脚本**（统一用 `os.environ.get("DEEPSEEK_API_KEY")`）。
-- 缺 key 或 key 无效时，`OpenAI(...)` 构造不会报错，但第一次调用会抛异常并中断对战。遇到莫名其妙的崩溃先检查这一点。
+Root agent: `DeepSeekPlayer.choose_move()` builds a prompt, asks the API and maps one
+integer back to an action. When extending it:
 
-## 代码结构与改法
+1. Subclass `poke_env.player.Player` and override `choose_move(self, battle)`.
+2. `battle_to_prompt()` compiles the battle state and the `SYSTEM` constant explains every
+   field of that prompt - change both together, or the model sees unexplained fields.
+3. Action encoding is a single integer index: `[0, n_moves)` selects a move,
+   `[n_moves, n_moves + n_switches)` selects a switch; return the action through
+   `Player.create_order(...)`.
+4. Fallbacks must never raise: `choose_random_move(battle)` when nothing is available,
+   and index `0` when the LLM answer is invalid. An exception in `choose_move` ends the
+   battle, so a bad move is always better than a crash.
+5. Put new agents in their own `xxx_player.py`; do not change the baseline behaviour of
+   `first_battle.py`, its numbers are the comparison point.
 
-| 文件 | 作用 |
-| --- | --- |
-| `deepseek_flash_player.py` | 唯一的 LLM Agent：`DeepSeekPlayer` + 提示词构造 + LLM 调用 + 日志 |
-| `first_battle.py` | 非 AI 基线：内置玩家互打，作为对比基准 |
-| `inspect_battle.py` | 调试脚本：打印 `battle` 等对象的属性名，用来核对 poke-env 字段 |
-| `llm_trace.log` | 运行时追加写的决策日志（**已被 git 跟踪**，见"已知坑"） |
-| `requirements.txt` | `pip freeze` 出来的全量精确版本 |
+Useful observation fields (verify with `inspect_battle.py` instead of guessing poke-env
+internals):
 
-扩展 Agent 时跟着现有写法走：
-
-1. 继承 `poke_env.player.Player`，覆盖 `choose_move(self, battle)`。
-2. `battle_to_prompt()` 把 `battle` 编译成中文提示词，`SYSTEM` 常量解释提示词里每个字段的含义和策略——改提示词时**两个地方要一起改**，否则模型会看到没解释过的字段。
-3. 动作编码统一为**一个整数下标**：`[0, n_moves)` 是招式，`[n_moves, n_moves + n_switches)` 是换人；最终用 `Player.create_order(...)` 返回动作。
-4. 兜底逻辑必须"永不抛异常"：没有可用动作时 `choose_random_move(battle)`，LLM 输出非法时返回 `0`（第一个招式）。`choose_move` 里抛异常会直接结束对战，宁可出烂招也不要崩。
-5. 新增 Agent 建议单独放 `xxx_player.py`，不要改 `first_battle.py` 的基线行为（基线数据是拿来做对比的）。
-
-常用观测字段（不确定就用 `inspect_battle.py` 验证，不要凭记忆猜 poke-env API）：
-
-- `battle.turn`、`battle.active_pokemon` / `battle.opponent_active_pokemon`：`species`、`types`、`current_hp_fraction`、`status`、`base_stats`、`damage_multiplier(type)`
-- `battle.available_moves`：`id`、`type`、`base_power`
+- `battle.turn`, `battle.active_pokemon` / `battle.opponent_active_pokemon`: `species`,
+  `types`, `current_hp_fraction`, `status`, `base_stats`, `damage_multiplier(type)`
+- `battle.available_moves`: `id`, `type`, `base_power`
 - `battle.available_switches`
 
-LLM 调用细节（`deepseek_flash_player.py`）：openai SDK + `base_url="https://api.deepseek.com"`、`model="deepseek-flash"`、`temperature=0`、`response_format={"type": "json_object"}`、`extra_body={"thinking": {"type": "disabled"}}`。换模型只改 `model` 字符串；DeepSeek 的模型名会变，报 400/404 时先怀疑模型名。
+LLM call details: openai SDK against `https://api.deepseek.com`,
+`model="deepseek-flash"`, `temperature=0` (root agent) or `1.0` (harness default),
+`response_format={"type": "json_object"}`, thinking enabled through
+`reasoning_effort="high"` plus `extra_body={"thinking": {"type": "enabled"}}`. Only the
+model string changes between DeepSeek models; DeepSeek renames models over time, so
+suspect the model name first on HTTP 400/404.
 
-代码风格：注释、提示词、日志、文档一律中文；4 空格缩进；不必要不要引入新依赖（`requirements.txt` 是全量精确版本，增删依赖后要同步更新）。
+## Working inside `temp/harness/`
 
-## 验证方式（没有自动化测试，也没有 lint 配置）
+- **DeepSeek is the only backend.** `pokechamp/deepseek_player.py` is the single
+  implementation; the GPT/LLaMA/Gemini/Ollama/OpenRouter backends and the backend
+  detection in `LLMPlayer` were removed on purpose. Do not reintroduce them.
+- Prompt algorithms are `io` (one call per turn), `sc`, `tot` and `minimax` (tree search
+  with LLM leaf evaluation, many calls per turn).
+- `poke_env/` there is a **vendored** engine, not the pip package. It carries deliberate
+  local changes; keep them and do not "restore" upstream behaviour:
+  - only the modern `websockets` client is used (the legacy one hangs on connect here);
+  - websocket connect and the login POST are retried four times, 5 s apart, because the
+    challenge server intermittently resets them;
+  - the Bayesian predictor was removed, so `Pokemon.guess_stats()` uses the format's usage
+    statistics only;
+  - formats starting with `gen9ou` (for example `gen9oulongtimer`) reuse the gen9ou usage
+    statistics;
+  - `team_util.get_llm_player()` builds only the LLM agent and poke-env baselines;
+    `poke_env/player/utils.py` (which pulled in pandas/tqdm) was deleted.
+- `ServerConfiguration` differs from the pip package: this engine takes a **bare host**
+  and builds `wss://<host>/showdown/websocket` itself, while pip's `poke_env==0.16.1`
+  (used by the root scripts) expects the full websocket URL.
+- Ladder facts worth remembering: account names must be at most 18 characters, the
+  `gen9oulongtimer` format bans moves such as Tera Blast (that is why the default team is
+  `team_gen9ou.txt` rather than a random bundled team), and the server often reports no
+  rating.
+- Teams are loaded through `poke_env/player/team_util.py`: `load_team_file` (a single
+  file), `load_random_team` (a bundled export), `TeamSet` (samples a directory of team
+  files) and `get_metamon_teams` (downloads a metamon pack; it needs the optional
+  `huggingface_hub` and `termcolor` packages, so `poke_env/data/download.py` is imported
+  lazily). Everything loaded this way is parsed and must contain six Pokemon.
+- A Showdown export separates Pokemon with a blank line. poke_env silently reads a file
+  without those blank lines as a single Pokemon, which is how a one-Pokemon team once
+  reached the ladder; see "Known pitfalls".
 
-仓库里没有 pytest / 测试目录 / 格式化配置，"验证"就是真跑一遍：
+## Style
 
-1. 起本地 showdown 服务器；
-2. `venv\Scripts\python.exe first_battle.py` 确认环境和连接正常；
-3. `venv\Scripts\python.exe deepseek_flash_player.py` 跑 LLM Agent，看结尾的 `Finished battles` / `Player 1 wins`，并检查 `llm_trace.log`。
+- Write all new comments, prompts, log messages and documentation in **English** (teammate
+  requirement). This file is English for the same reason.
+- The root demo scripts (`deepseek_flash_player.py`, `first_battle.py`,
+  `inspect_battle.py`) and `README.md` still carry Chinese comments from the first
+  version; translate them when you touch those files, but do not mass-rewrite unrelated
+  files.
+- 4-space indentation. Avoid new dependencies: `requirements.txt` is a full pin set, so
+  update it in the same change if you really need one.
 
-- 冒烟测试可以临时把 `n_battles` 改小（1 场），但**不要把这种改动留在提交里**：测完改回，或 `git restore <file>`。
-- 每回合要调用一次 API，串行跑 10 场需要几分钟；不要因为"慢"就放弃跑真实验证。
-- 日志判读：`llm_trace.log` 中 `OK  turn-battle pick=N` 是正常；`FAIL parse_error=... raw=...` 说明模型返回了非法 JSON 或下标越界，消息里带了原始输出，用它来改提示词。日志是追加写的，会越跑越长。
+## Verification (no automated tests, no lint config)
 
-## 已知坑
+There is no pytest suite, test directory or formatter configuration, so "verified" means
+"actually ran":
 
-- `llm_trace.log` **被 git 跟踪**（历史提交带进来的）。跑一次对战它就会变脏。提交前用 `git restore llm_trace.log` 丢弃运行产生的日志（除非确实要提交样本日志），**不要把它和功能改动混在同一个 commit 里**。
-- 根目录 `.gitignore` 里写的是 `venv\`（反斜杠），git 并不能靠这一行忽略 `venv/`（实测 `git check-ignore venv` 不匹配；`venv/` 没被跟踪是因为 venv 内部自带 `.gitignore`）。这个非法 glob 还会让 ripgrep/rg 在仓库根目录搜索时直接报 `error parsing glob 'venv\'` 失败——搜索时排除 venv，例如 `rg --glob '!venv'`，或把搜索范围限定到具体目录。
-- README 里的 `venv\Script\activate` 少了一个 s，正确路径是 `venv\Scripts\Activate.ps1`。
-- 两个 player 都是 `max_concurrent_battles=1`：对战是串行的。不要为了"加速"改成并发，既容易触发服务器/限流问题，日志也会交错到无法分析。
+1. Root agent: `venv\Scripts\python.exe deepseek_flash_player.py`, then read the
+   `Finished battles` / win summary and `llm_trace.log`.
+2. Harness: run `local_1v1.py` against a baseline (needs a local server), or
+   `ladder_deepseek.py --N 1` against the public server; check the `Finished battles:
+   ..., won: ...` line and the per-turn `LLM [<username>]: ...` reasoning.
+3. A battle costs one API call per turn with `io` and many with `minimax`; a serial battle
+   takes minutes. Shrinking `n_battles`/`--N` for a smoke test is fine, but do not leave
+   such a change in a commit.
+4. Both agents use `max_concurrent_battles=1`, so battles run one at a time. Do not raise
+   it to "go faster": it invites rate limits and interleaved, unreadable logs.
 
-## 提交约定
+## Known pitfalls
 
-- 分支 `main`，远程 `origin` = `github.com:Sandoleathy/CISC7404-PROJECT-POKEMON-AGENT`。
-- 提交信息用中文短句，沿用现有风格（如"第一版接入Deepseek模型的宝可梦对战Agent…"）。
-- 不要提交：`.env`、`venv/`、API key、一次性的调试打印、只用于本地实验的临时改动。
+- Both `llm_trace.log` files (repository root and `temp/harness/`) are tracked by git, so a
+  single run makes them dirty. Run `git restore llm_trace.log temp/harness/llm_trace.log`
+  before committing unless you deliberately want to commit the sample log, and never mix
+  them into a commit that contains code changes.
+- An empty redirected log file does not mean a hang: without `python -u` the buffer is only
+  flushed at exit. The real hang symptom is the line `waiting for log in`, which means the
+  server rejected the login (name longer than 18 characters, missing password) or reset
+  the connection.
+- On this machine a Windows system proxy (`127.0.0.1:7890`) is enabled in the registry.
+  `requests` (used by poke_env to log in) honours it while `websockets`/`httpx` do not, so
+  a dead or filtering proxy shows up as login `ConnectionResetError` while the websocket
+  connects fine. Set `NO_PROXY=<host>` for the run if that happens.
+- `.gitignore` used to contain `venv\`, an invalid glob that git ignored and that made
+  ripgrep abort with `error parsing glob 'venv\'`. It is now `venv/`.
+- `README.md` contains a `.evn` typo (should be `.env`) and documents
+  `venv\Scripts\activate`, which is the cmd form; PowerShell uses
+  `venv\Scripts\Activate.ps1`.
+- The harness must be started from `temp\harness`: the data cache opens
+  `./poke_env/data/static/...` relative to the current working directory.
+- A Showdown team export needs a blank line between Pokemon. `team.txt` in the repository
+  root has none, so poke_env parses it as a single Pokemon (that is why a ladder replay
+  showed a one-Pokemon team). Every team the harness loads is now parsed and counted, and
+  `temp/harness/team_gen9ou.txt` is the root agent's team with the blank lines restored.
 
-## 维护本文件
+## Commit conventions
 
-改动了运行方式（新脚本、新依赖、新对战格式、日志路径等）时，顺手更新本文件对应小节，让下一个人/Agent 拿到的说明和代码一致。
+- Branch `main`, remote `origin` = `github.com:Sandoleathy/CISC7404-PROJECT-POKEMON-AGENT`.
+- Commit messages: one short line, matching the existing history (for example
+  "第一版接入Deepseek模型的宝可梦对战Agent…"); English is equally fine.
+- Never commit: `.env`, `venv/`, API keys, ladder passwords, one-off debug prints,
+  redirected console logs (`*.log` is ignored) or `battle_log/`, and local-only
+  experiments. The only logs tracked on purpose are the two `llm_trace.log` files (root
+  agent and harness).
+
+## Maintaining this file
+
+When the way this project runs changes (new script, new dependency, new battle format, new
+log location, ...), update the matching section here in the same change, so the next human
+or agent gets instructions that match the code.

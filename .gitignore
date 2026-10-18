@@ -1,2 +1,23 @@
+# Secrets and credentials
 .env
-venv\
+passwords.json
+
+# Virtual environment (must be named venv)
+venv/
+
+# Python bytecode and caches
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Runtime output: battle logs, replay folders and redirected console logs.
+# llm_trace.log is tracked on purpose, both for the root agent (./llm_trace.log)
+# and for the harness agent (temp/harness/llm_trace.log): the negation below
+# matches that file name at any depth.
+*.log
+!llm_trace.log
+battle_log/
+
+# OS / editor junk
+Thumbs.db
+.DS_Store
