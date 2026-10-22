@@ -1,0 +1,62 @@
+Zapdos @ Heavy-Duty Boots  
+Ability: Static  
+Tera Type: Grass  
+EVs: 248 HP / 76 Def / 184 Spe  
+Timid Nature  
+IVs: 0 Atk  
+- Hurricane  
+- Weather Ball  
+- Volt Switch  
+- Roost  
+
+Hydrapple @ Heavy-Duty Boots  
+Ability: Regenerator  
+Tera Type: Steel  
+EVs: 248 HP / 176 Def / 16 SpA / 56 SpD / 12 Spe  
+Modest Nature  
+IVs: 0 Atk  
+- Draco Meteor  
+- Giga Drain  
+- Earth Power  
+- Nasty Plot  
+
+Zamazenta @ Heavy-Duty Boots  
+Ability: Dauntless Shield  
+Tera Type: Steel  
+EVs: 252 Atk / 4 SpD / 252 Spe  
+Jolly Nature  
+- Close Combat  
+- Crunch  
+- Stone Edge  
+- Heavy Slam  
+
+Slowking-Galar @ Heavy-Duty Boots  
+Ability: Regenerator  
+Tera Type: Water  
+EVs: 248 HP / 8 Def / 252 SpD  
+Sassy Nature  
+IVs: 0 Atk / 0 Spe  
+- Sludge Bomb  
+- Future Sight  
+- Flamethrower  
+- Chilly Reception  
+
+Tinkaton @ Air Balloon  
+Ability: Mold Breaker  
+Tera Type: Water  
+EVs: 248 HP / 24 SpD / 236 Spe  
+Jolly Nature  
+- Gigaton Hammer  
+- Thunder Wave  
+- Encore  
+- Stealth Rock  
+
+Ting-Lu @ Leftovers  
+Ability: Vessel of Ruin  
+Tera Type: Ghost  
+EVs: 248 HP / 244 Def / 16 Spe  
+Impish Nature  
+- Earthquake  
+- Body Press  
+- Ruination  
+- Whirlwind  

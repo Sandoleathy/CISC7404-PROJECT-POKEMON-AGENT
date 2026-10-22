@@ -16,6 +16,9 @@ __pycache__/
 # matches that file name at any depth.
 *.log
 !llm_trace.log
+# The pi_agent decision trace is runtime output; keep it out of commits even
+# though the two older llm_trace.log files are tracked on purpose.
+pi_agent/llm_trace.log
 battle_log/
 
 # OS / editor junk

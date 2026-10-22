@@ -21,6 +21,7 @@ dependencies = [
     "openai==3.29.0",
     "orjson==3.13.0",
     "pettingzoo==1.27.0",
+    "pi-python-core>=0.11.0",
     "poke-env==0.16.1",
     "pydantic==2.14.1",
     "pydantic-core==2.50.1",
