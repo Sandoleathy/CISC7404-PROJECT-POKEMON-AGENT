@@ -1,13 +1,22 @@
-"""Run the pi-agent-core player on the PokeAgent Challenge ladder.
+"""Run the pi-agent-core player on a local Pokemon Showdown ladder.
+
+The public PokeAgent Challenge server is permanently closed.  This entrypoint
+now talks to the local Showdown server (default ``localhost:8000``) and its
+preloaded metamon baseline pool.  Start the server and its opponent pool first;
+this script only connects and searches the local ladder.
 
 Examples (from the repository root):
 
     .venv\\Scripts\\python.exe -u pi_agent\\ladder.py --N 1
-    .venv\\Scripts\\python.exe -u pi_agent\\ladder.py --prompt_algo io --N 1
+    .venv\\Scripts\\python.exe -u pi_agent\\ladder.py --server_url localhost:8000 --battle_format gen9ou --N 1
+
+The local server must accept guest logins (``noguestsecurity = true`` in the
+Showdown config) when ``--password`` is empty.  A registered local account can
+be used by passing ``--username`` and ``--password`` instead.
 
 The script is self-contained: ``pi_agent/poke_env`` is the copied vendored
-engine, so it does not need ``temp/harness`` on the path.  Credentials and the
-DeepSeek key come from the repository ``.env`` (or the process environment).
+engine, so it does not need ``temp/harness`` on the path.  The DeepSeek key
+comes from the repository ``.env`` (or the process environment).
 """
 
 from __future__ import annotations
@@ -31,25 +40,34 @@ from pi_agent_player import PiAgentPlayer  # noqa: E402
 from poke_env import AccountConfiguration, ServerConfiguration  # noqa: E402
 from poke_env.player.team_util import load_random_team, load_team_file  # noqa: E402
 
-# This poke_env build expects a bare host and adds
+# The copied poke_env build expects a bare host and adds
 # ``wss://<host>/showdown/websocket`` itself.
-POKEAGENT_SERVER = ServerConfiguration(
-    os.getenv("POKEAGENT_SERVER_URL", "battling.pokeagentchallenge.com"),
-    os.getenv("POKEAGENT_AUTH_URL", "https://battling.pokeagentchallenge.com/action.php?"),
-)
+DEFAULT_SERVER_URL = os.getenv("PI_AGENT_SERVER_URL", "localhost:8000")
+DEFAULT_AUTH_URL = os.getenv("PI_AGENT_AUTH_URL", "https://play.pokemonshowdown.com/action.php?")
+DEFAULT_BATTLE_FORMAT = "gen9ou"
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="pi-agent-core player on the PokeAgent Challenge ladder")
+    parser = argparse.ArgumentParser(description="pi-agent-core player on a local Pokemon Showdown ladder")
     parser.add_argument(
         "--username",
-        default=os.getenv("POKEAGENT_USERNAME", "PiAgent"),
-        help="Ladder account name; the challenge server rejects names longer than 18 characters",
+        default=os.getenv("PI_AGENT_USERNAME", "PiAgent"),
+        help="Local Showdown account name; names are usually limited to 18 characters",
     )
     parser.add_argument(
         "--password",
-        default=os.getenv("POKEAGENT_PASSWORD", ""),
-        help="Ladder password; leave empty to log in without authentication",
+        default=os.getenv("PI_AGENT_PASSWORD", ""),
+        help="Local account password; leave empty for a guest login (requires noguestsecurity=true)",
+    )
+    parser.add_argument(
+        "--server_url",
+        default=DEFAULT_SERVER_URL,
+        help="Local Showdown host, bare host and port (default localhost:8000)",
+    )
+    parser.add_argument(
+        "--auth_url",
+        default=DEFAULT_AUTH_URL,
+        help="Authentication endpoint used only when --password is non-empty",
     )
     parser.add_argument(
         "--backend",
@@ -64,8 +82,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--battle_format",
-        default="gen9oulongtimer",
-        help="Ladder format; the upstream challenge server uses gen9ou",
+        default=DEFAULT_BATTLE_FORMAT,
+        help="Local format (default gen9ou; gen9oulongtimer is not defined on the local server)",
     )
     parser.add_argument(
         "--team_file",
@@ -79,7 +97,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--log_dir", default="./battle_log/pi_agent")
     parser.add_argument("--temperature", type=float, default=1.0)
-    parser.add_argument("--N", type=int, default=1, help="Number of ladder games")
+    parser.add_argument("--N", type=int, default=1, help="Number of local ladder games")
     parser.add_argument(
         "--knowledge_dir",
         default=None,
@@ -94,6 +112,9 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def build_team(args: argparse.Namespace):
+    if "random" in args.battle_format:
+        # Random formats get their team from the local server.
+        return None
     if args.random_team:
         team_format = "gen9ou" if args.battle_format.startswith("gen9ou") else args.battle_format
         return load_random_team(team_format=team_format)
@@ -108,7 +129,7 @@ def build_agent(args: argparse.Namespace, config: AgentConfig) -> PiAgentPlayer:
         battle_format=args.battle_format,
         team=build_team(args),
         account_configuration=AccountConfiguration(args.username, args.password or None),
-        server_configuration=POKEAGENT_SERVER,
+        server_configuration=ServerConfiguration(args.server_url, args.auth_url),
         temperature=args.temperature,
         prompt_algo=args.prompt_algo,
         log_dir=args.log_dir,
@@ -136,13 +157,13 @@ async def main() -> None:
     if len(args.username) > 18:
         raise SystemExit(
             f"username {args.username!r} is {len(args.username)} characters; "
-            "the challenge server allows at most 18"
+            "Showdown names are usually limited to 18"
         )
 
     os.makedirs(args.log_dir, exist_ok=True)
     agent = build_agent(args, config)
     print(
-        f"pi-agent ladder: {args.username} on {POKEAGENT_SERVER.server_url} "
+        f"pi-agent local ladder: {args.username} on {args.server_url} "
         f"({args.battle_format}), prompt_algo={args.prompt_algo}, model={config.model}, "
         f"thinking={config.thinking_level}"
     )
@@ -152,8 +173,11 @@ async def main() -> None:
         await agent.close()
 
     print(f"Finished battles: {agent.n_finished_battles}, won: {agent.n_won_battles}")
+    if agent.n_finished_battles:
+        print(f"Win rate: {agent.win_rate * 100:.1f}%")
     for tag, battle in agent.battles.items():
         if battle.finished:
+            # The local server may not report ratings.
             if battle.rating is None and battle.opponent_rating is None:
                 ratings = "no rating reported"
             else:
