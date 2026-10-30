@@ -8,8 +8,12 @@ Instructions for AI coding agents working in this repository. Human contributors
 - CISC7404 (AI-Trustworthy) course project: a Pokemon PvP demo, repository
   `CISC7404-PROJECT-POKEMON-AGENT`.
 - Approach: drive a Pokemon Showdown battle through `poke_env` with a large language
-  model (DeepSeek) and measure it by wins/losses against poke-env's built-in heuristic
-  players.
+  model (DeepSeek). `pi_agent/` now plays the **local** Showdown ladder whose opponent
+  pool is the 40+ metamon baseline strategies, and measures wins/losses.
+- The public PokeAgent Challenge server is permanently closed. `pi_agent/` now targets a
+  **local** Pokemon Showdown server (default `localhost:8000`) with the metamon baseline
+  pool preloaded. `temp/harness/` and the root scripts still describe the old online
+  setup; use them as historical/reference code, not as the current test path.
 - Three generations of code live here:
   1. the original demo scripts in the repository root (direct connection, no config
      layer, minimal prompt);
@@ -20,10 +24,28 @@ Instructions for AI coding agents working in this repository. Human contributors
      (`import pi_python`), with model-callable battle tools and a pi-knowledge RAG tool.
      It currently implements only the `io` prompt algorithm.
 - Status: demo/experiment stage, no test suite, no linter, no configuration layer.
-  One "experiment" = start a server (or use the online ladder) -> run N battles -> read
-  the win/loss summary and the logs.
+  One "experiment" = start the local Showdown server (and its opponent pool) -> run N
+  battles -> read the win/loss summary and the logs.
 - This is coursework that teammates and the TA read: prefer readability, keep diffs
   small, and do not refactor or reformat files unrelated to your task.
+
+## Current state (2026-10-30)
+
+- The public PokeAgent Challenge ladder is permanently closed; do not wait for it or add
+  new code that points at it.
+- `pi_agent/` is the active harness. It connects to the **local** Showdown server at
+  `localhost:8000`, format `gen9ou`, whose ladder is backed by 40+ metamon baseline
+  strategies. The local server and pool are managed outside this repository. `ladder.py`
+  assumes those baselines are reachable through the standard local `/search <format>`
+  ladder; a challenge-only pool would need a different matchmaking loop.
+- `pi_agent` implements only `io`. `sc`, `tot` and `minimax` are reserved and currently
+  fail fast.
+- The pi-knowledge RAG tool is wired and degrades gracefully, but its knowledge base is
+  still empty. Corpus construction and RAG-vs-non-RAG evaluation are open work.
+- The local-server migration in `pi_agent/ladder.py` is in place. There is no automated
+  integration test, so run one short local game before a long experiment.
+- `temp/harness/` and the root demo scripts remain as historical/reference code for the
+  old online setup.
 
 ## Repository layout
 
@@ -36,11 +58,13 @@ Instructions for AI coding agents working in this repository. Human contributors
 | `llm_trace.log` | Decision log appended by the root agent (**tracked by git**, see "Known pitfalls") |
 | `requirements.txt` | Full `pip freeze` of the root scripts (exact versions) |
 | `temp/harness/` | DeepSeek-only PokéChamp harness: own README, `pokechamp/` (LLM player, prompts, minimax, DeepSeek backend), vendored `poke_env/` + static data, `local_1v1.py`, `ladder_deepseek.py`, `team_gen9ou.txt`, `llm_trace.log` |
-| `pi_agent/` | Self-contained pi-python-core harness: copied `poke_env/` + the needed `pokechamp/` helpers (absolute data paths), `pi_agent_player.py`, `battle_tools.py`, `knowledge.py`, `knowledge_bridge.mjs`, `ladder.py`, `team_gen9ou.txt`. See `pi_agent/README.md` for the file map |
+| `pi_agent/` | Self-contained pi-python-core harness: copied `poke_env/` + the needed `pokechamp/` helpers (absolute data paths), `pi_agent_player.py`, `battle_tools.py`, `knowledge.py`, `knowledge_bridge.mjs`, local-Showdown `ladder.py`, `team_gen9ou.txt`. See `pi_agent/README.md` for the file map |
 | `pi_agent/poke_env/` | Copied snapshot of the vendored engine used by `temp/harness/`; deliberate local changes are preserved and data paths are absolute. Do not restore upstream behaviour |
 | `pi_agent/pokechamp/` | Only `data_cache.py`, `prompts.py`, `sim_constants.py`; `llm_player.py`/`minimax_optimizer.py` are intentionally not copied yet |
 
 `temp/harness/` is meant to be committed (about 20 MB, mostly `poke_env/data/static`).
+`pi_agent/poke_env/` is a second, self-contained copy of that engine (about another
+19 MB), so the repository carries two engines by design; do not delete either one.
 `temp/harness/README.md` documents the harness in detail; this file only lists what an
 agent must know before touching it.
 
@@ -65,14 +89,15 @@ cd temp\harness
 ..\..\venv\Scripts\python.exe ladder_deepseek.py --username <name> --N 1
 ..\..\venv\Scripts\python.exe local_1v1.py --player_prompt_algo io --opponent_name one_step --N 5
 
-# pi_agent: self-contained, run from the repository root (data paths are absolute)
-.venv\Scripts\python.exe -u pi_agent\ladder.py --N 1
+# pi_agent: local Showdown ladder; start the server and its opponent pool first
+.venv\Scripts\python.exe -u pi_agent\ladder.py --server_url localhost:8000 --battle_format gen9ou --N 1
 .venv\Scripts\python.exe pi_agent\ladder.py --prompt_algo io --N 1
 ```
 
-- Python >= 3.10 (the checked-in `.venv` currently runs 3.14.5 and is isolated, so install
-  packages into it explicitly). `uv sync` is the current way to restore it; it installs
-  `pi-python-core` from `pyproject.toml`.
+- Python >= 3.14 for this checkout's `.venv` (the current interpreter is 3.14.5;
+  `pi-python-core` itself supports 3.11+). `uv sync` is the current way to restore the
+  environment; it installs `pi-python-core` from `pyproject.toml`. `requirements.txt`
+  remains the pip fallback.
 - `pi_agent` needs `pi-python-core` (import name `pi_python`), the existing
   `numpy`/`orjson`/`websockets`/`requests`/`python-dotenv`, and Node.js 22+ only for the
   pi-knowledge bridge. It does not use the `pi` CLI and does not need a model configured
@@ -80,10 +105,12 @@ cd temp\harness
 - The harness needs `numpy`, `orjson`, `openai`, `websockets`, `requests` and
   `python-dotenv`, all already present. `rich`/`pyfiglet`/`fade`/`termcolor` are **not**
   installed and are not required: `pokechamp/visual_effects.py` degrades to plain text.
-- `local_1v1.py` needs a local Showdown server on port 8000; the ladder script talks to
-  the public PokeAgent Challenge server. `pi_agent` currently ships **only** the ladder
-  entrypoint; its player class can be used for a local test by passing
-  `server_configuration=None`, but no local script is committed.
+- `pi_agent` now ships **only** the local ladder entrypoint (`ladder.py`). The local server
+  must already be running and must expose the metamon baseline pool on its ladder. Defaults:
+  `localhost:8000`, `gen9ou`, guest login with an empty password, `team_gen9ou.txt`.
+- `temp/harness/local_1v1.py` also needs a local Showdown server on port 8000;
+  `temp/harness/ladder_deepseek.py` still targets the closed public challenge server and is
+  historical reference only.
 - Team selection: `--team_file <path>` (default `temp/harness/team_gen9ou.txt` or
   `pi_agent/team_gen9ou.txt`) or `--random_team` for a bundled export; both are parsed and
   must yield six Pokemon.
@@ -103,10 +130,15 @@ cd temp\harness
   (`low`/`medium`/`high`, default `high`), `POKEAGENT_USERNAME`,
   `POKEAGENT_PASSWORD`, `POKEAGENT_SERVER_URL`, `POKEAGENT_AUTH_URL`, and
   `HARNESS_TRACE_LOG` (trace-log path, `0` disables the trace log).
-- `pi_agent` reads the same `DEEPSEEK_*` and `POKEAGENT_*` variables from the repository
-  `.env`. It also reads:
+- `pi_agent` reads `DEEPSEEK_*` from the repository `.env` and uses its own local-server
+  settings. It no longer reads `POKEAGENT_*` (those remain only for the historical
+  `temp/harness/ladder_deepseek.py`).
   | Variable | Meaning |
   | --- | --- |
+  | `PI_AGENT_SERVER_URL` | Local Showdown bare host and port (default `localhost:8000`) |
+  | `PI_AGENT_AUTH_URL` | Auth endpoint used only when `--password` is non-empty |
+  | `PI_AGENT_USERNAME` | Local account name (default `PiAgent`) |
+  | `PI_AGENT_PASSWORD` | Local password; empty = guest login |
   | `PI_AGENT_TRACE_LOG` | Trace path (default `pi_agent/llm_trace.log`; `0` disables) |
   | `PI_AGENT_MAX_TOKENS` | Per-request output ceiling (default `8192`, clamp 1024-32768) |
   | `PI_AGENT_CHAT_REASONING` | `1` posts the model's thinking into battle chat (default off) |
@@ -118,7 +150,9 @@ cd temp\harness
 - `pi-python-core` uses DeepSeek's Responses API (`/responses`), not the root scripts'
   `openai` chat-completions client. A missing or invalid `DEEPSEEK_API_KEY` still
   constructs the provider; the first `agent.prompt()` raises.
-- Ladder credentials must come from the environment; `passwords.json` is git-ignored.
+- The local Showdown server must accept guest logins when `--password` is empty
+  (`exports.noguestsecurity = true` in its config) or have a registered account supplied
+  through `--username`/`--password`. `passwords.json` is git-ignored.
 
 ## Logs: where to look
 
@@ -273,7 +307,7 @@ suspect the model name first on HTTP 400/404.
   local changes; keep them and do not "restore" upstream behaviour:
   - only the modern `websockets` client is used (the legacy one hangs on connect here);
   - websocket connect and the login POST are retried four times, 5 s apart, because the
-    challenge server intermittently resets them;
+    old public challenge server intermittently reset them;
   - the Bayesian predictor was removed, so `Pokemon.guess_stats()` uses the format's usage
     statistics only;
   - formats starting with `gen9ou` (for example `gen9oulongtimer`) reuse the gen9ou usage
@@ -283,10 +317,10 @@ suspect the model name first on HTTP 400/404.
 - `ServerConfiguration` differs from the pip package: this engine takes a **bare host**
   and builds `wss://<host>/showdown/websocket` itself, while pip's `poke_env==0.16.1`
   (used by the root scripts) expects the full websocket URL.
-- Ladder facts worth remembering: account names must be at most 18 characters, the
-  `gen9oulongtimer` format bans moves such as Tera Blast (that is why the default team is
-  `team_gen9ou.txt` rather than a random bundled team), and the server often reports no
-  rating.
+- Historical public-ladder facts worth remembering: account names must be at most 18
+  characters, the `gen9oulongtimer` format banned moves such as Tera Blast (that is why the
+  default team is `team_gen9ou.txt` rather than a random bundled team), and the old server
+  often reported no rating.
 - Teams are loaded through `poke_env/player/team_util.py`: `load_team_file` (a single
   file), `load_random_team` (a bundled export), `TeamSet` (samples a directory of team
   files) and `get_metamon_teams` (downloads a metamon pack; it needs the optional
@@ -315,14 +349,12 @@ There is no pytest suite, test directory or formatter configuration, so "verifie
 
 1. Root agent: `venv\Scripts\python.exe deepseek_flash_player.py`, then read the
    `Finished battles` / win summary and `llm_trace.log`.
-2. Harness: run `local_1v1.py` against a baseline (needs a local server), or
-   `ladder_deepseek.py --N 1` against the public server; check the `Finished battles:
-   ..., won: ...` line and the per-turn `LLM [<username>]: ...` reasoning.
-3. pi_agent: `ladder.py --N 1` against the public server, then read
-   `pi_agent/llm_trace.log` for `TOOL:` / `ANSWER:` / `ERROR:`. A local integration test is
-   possible by constructing `PiAgentPlayer` with `server_configuration=None`; no local
-   script is committed. The challenge server itself can return HTTP 530 while its origin is
-   down; that is external and worth retrying later.
+2. Harness: run `local_1v1.py` against a baseline (needs a local server). The old
+   `ladder_deepseek.py --N 1` path targets the closed public server and is historical.
+3. pi_agent: start the local Showdown server and its metamon baseline pool, then run
+   `ladder.py --server_url localhost:8000 --battle_format gen9ou --N 1`; read
+   `pi_agent/llm_trace.log` for `TOOL:` / `ANSWER:` / `ERROR:`. There is no automated
+   integration test, so run one short game first and treat it as a smoke test.
 4. A battle costs one API call per turn with `io` and many with `minimax`; a serial battle
    takes minutes. Shrinking `n_battles`/`--N` for a smoke test is fine, but do not leave
    such a change in a commit.
@@ -373,13 +405,30 @@ There is no pytest suite, test directory or formatter configuration, so "verifie
   built. The battle knowledge corpus is still undecided; do not commit a generated KB.
 - `pi_agent` supports only `--prompt_algo io`. `sc`/`tot`/`minimax` raise
   `NotImplementedError`; do not make them silently fall back to `io`.
-- The PokeAgent Challenge websocket host can answer HTTP 530 while its origin is down
-  (the main site may still return 200). This is external; retry later instead of changing
-  the server URL.
-- For a local integration test against the sibling `pokemon-showdown`, its
-  `config/config.js` needs `noguestsecurity = true` so empty-password guest accounts can
-  log in. That is a development-server setting outside this repository; restore it after
-  the test.
+- The public PokeAgent Challenge server is permanently closed. Do not point `pi_agent`
+  at `battling.pokeagentchallenge.com` or wait for it to return; use the local server.
+- `pi_agent` defaults to `localhost:8000` and `gen9ou`. The old
+  `gen9oulongtimer` format is an official-challenge custom format and is **not** defined
+  in the local `pokemon-showdown/config/formats.ts`; use `gen9ou` locally.
+- `ladder.py` does not start the local server. Start `pokemon-showdown` and its metamon
+  baseline pool first; without opponents the client waits in `/search`. The current code
+  assumes the pool is on the standard local ladder; if the pool is only exposed as
+  challenge bots, replace `agent.ladder()` with a challenge loop.
+- Empty-password guest login requires `noguestsecurity = true` in the local server's
+  `config/config.js`. Otherwise use a registered account via `--username`/`--password`;
+  the default play.pokemonshowdown.com auth endpoint will reject an unknown local guest.
+- `PI_AGENT_SERVER_URL` / `--server_url` must be a bare `host:port`; the copied engine
+  adds `wss://` and `/showdown/websocket` itself.
+
+## Current open work
+
+- Confirm the local ladder end-to-end with one short smoke-test game and inspect
+  `pi_agent/llm_trace.log`; there is no automated integration test.
+- Build the pi-knowledge corpus and evaluate RAG vs non-RAG; the KB is still empty.
+- Port `sc`, `tot` and `minimax` if the `io` baseline is stable.
+- Run the planned ~50 local ladder games to estimate a win rate, and compare with a
+  non-RAG control.
+- Tune the CoT/tool-use prompt and the three-tool-call guidance from the trace.
 
 ## Commit conventions
 
